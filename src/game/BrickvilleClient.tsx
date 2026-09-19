@@ -28,6 +28,7 @@ export function BrickvilleClient() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (phase !== "play") return;
+      if (useCity.getState().helpOpen && e.code !== "Escape") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
       if (e.code === "KeyR") {
@@ -64,7 +65,6 @@ export function BrickvilleClient() {
   return (
     <div
       className="relative h-dvh w-full overflow-hidden bg-sky select-none"
-      style={{ touchAction: "none" }}
       onPointerDown={unlockAudio}
     >
       <canvas

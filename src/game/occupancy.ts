@@ -136,6 +136,10 @@ export function transformPrefab(
     maxZ = Math.max(maxZ, b.z + s.d);
   }
 
+  const wallCounts = new Map<VoxelBrick["color"], number>();
+  for (const b of prefab) if (b.kind === "brick") wallCounts.set(b.color, (wallCounts.get(b.color) ?? 0) + 1);
+  const wallColor = [...wallCounts].sort((a,b) => b[1] - a[1])[0]?.[0];
+
   return prefab.map((b) => {
     const s = orientedSize(b.w, b.d, b.rot);
     const corners = [
@@ -146,9 +150,8 @@ export function transformPrefab(
     ].map((p) => rotatePoint(p.x, p.z, rot, maxX, maxZ));
     const nx = Math.min(...corners.map((p) => p.x));
     const nz = Math.min(...corners.map((p) => p.z));
-    const wallColors = new Set(["white", "red", "yellow", "blue", "darkBlue", "green", "tan"]);
     const color =
-      colorOverride && wallColors.has(b.color) && b.kind !== "minifig" && b.kind !== "tree"
+      colorOverride && b.kind === "brick" && b.color === wallColor
         ? colorOverride
         : b.color;
     return {
@@ -164,11 +167,11 @@ export function transformPrefab(
 function rotatePoint(x: number, z: number, rot: number, w: number, d: number) {
   switch (rot) {
     case 1:
-      return { x: z, z: w - x };
+      return { x: d - z, z: x };
     case 2:
       return { x: w - x, z: d - z };
     case 3:
-      return { x: d - z, z: x };
+      return { x: z, z: w - x };
     default:
       return { x, z };
   }

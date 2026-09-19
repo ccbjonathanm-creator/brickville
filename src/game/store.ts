@@ -32,6 +32,8 @@ type CityState = {
   ghost: Ghost | null;
   helpOpen: boolean;
   savedHint: boolean;
+  saveError: boolean;
+  notice: string;
   hasExistingSave: boolean;
   past: HistorySnap[];
   future: HistorySnap[];
@@ -46,6 +48,7 @@ type CityState = {
   setGhostWorld: (wx: number, wz: number) => void;
   placeAtGhost: () => boolean;
   eraseAtGhost: () => boolean;
+  eraseGroup: (groupId: string) => boolean;
   addPlateAt: (gx: number, gz: number) => boolean;
   replacePlate: (gx: number, gz: number) => boolean;
   undo: () => void;
@@ -55,10 +58,8 @@ type CityState = {
   setHelp: (v: boolean) => void;
 };
 
-let idSeq = 1000;
 function nid() {
-  idSeq += 1;
-  return `b${idSeq.toString(36)}`;
+  return crypto.randomUUID();
 }
 
 function cloneSnap(plates: PlacedPlate[], bricks: PlacedBrick[]): HistorySnap {
@@ -114,6 +115,8 @@ export const useCity = create<CityState>((set, get) => ({
   ghost: null,
   helpOpen: false,
   savedHint: false,
+  saveError: false,
+  notice: "",
   hasExistingSave: false,
   past: [],
   future: [],
@@ -127,6 +130,8 @@ export const useCity = create<CityState>((set, get) => ({
       bricks: demo.bricks,
       hasExistingSave: typeof window !== "undefined" ? hasSave() : false,
       ghost: null,
+      helpOpen: false,
+      notice: "",
     });
   },
 
@@ -145,6 +150,7 @@ export const useCity = create<CityState>((set, get) => ({
       future: [],
       ghost: null,
       helpOpen: true,
+      notice: "",
     });
     get().persist();
   },
@@ -168,6 +174,8 @@ export const useCity = create<CityState>((set, get) => ({
       past: [],
       future: [],
       ghost: null,
+      helpOpen: false,
+      notice: "",
     });
   },
 
@@ -187,28 +195,49 @@ export const useCity = create<CityState>((set, get) => ({
         color: item.colors.includes(get().color) ? get().color : item.colors[0]!,
       });
     }
+    set({ ghost: null, notice: "" });
   },
 
   setColor(c) {
-    set({ color: c });
+    if (getCatalogItem(get().selectedId)?.colors.includes(c)) set({ color: c });
   },
 
   rotate(dir = 1) {
+    const item = getCatalogItem(get().selectedId);
+    if (item?.kind === "baseplate") {
+      const cycles = [["road-ns", "road-ew"], ["road-t-n", "road-t-w", "road-t-s", "road-t-e"], ["road-curve-ne", "road-curve-nw", "road-curve-sw", "road-curve-se"]];
+      const cycle = cycles.find(c => c.includes(item.plateType!));
+      if (cycle) get().selectItem(`plate-${cycle[(cycle.indexOf(item.plateType!) + dir + cycle.length) % cycle.length]}`);
+      return;
+    }
+    const ghost = get().ghost;
+    const oldSize = item ? itemFootprint(item, get().rot) : null;
     set({ rot: ((((get().rot + dir) % 4) + 4) % 4) as Rot });
+    if (ghost && oldSize) get().setGhostWorld(ghost.x + oldSize.w / 2, ghost.z + oldSize.d / 2);
   },
 
   setMode(m) {
-    set({ mode: m });
+    const item = getCatalogItem(get().selectedId);
+    if (m === "place" && item?.kind === "baseplate") get().selectItem("brick-2x2");
+    if (m === "expand" && item?.kind !== "baseplate") get().selectItem("plate-grass");
+    set({ mode: m, ghost: null, notice: "" });
   },
 
   setGhostWorld(wx, wz) {
+    if (!Number.isFinite(wx) || !Number.isFinite(wz)) { set({ ghost: null }); return; }
     const { selectedId, rot, mode, color } = get();
+    if (mode === "erase") {
+      const x = Math.floor(wx), z = Math.floor(wz);
+      set({ ghost: { x, z, y: 0, valid: Boolean(occupancy.topGroupAt(x, z)) } });
+      return;
+    }
     if (mode === "expand") {
       const gx = Math.floor(wx / PLATE_STUDS);
       const gz = Math.floor(wz / PLATE_STUDS);
-      const next = { x: gx * PLATE_STUDS, z: gz * PLATE_STUDS, y: 0, valid: true };
+      const valid = occupancy.hasPlate(gx, gz) || (get().plates.length < MAX_PLATES && expandSlots(get().plates).some(p => p.gx === gx && p.gz === gz));
+      const next = { x: gx * PLATE_STUDS, z: gz * PLATE_STUDS, y: 0, valid };
       const prev = get().ghost;
-      if (prev && prev.x === next.x && prev.z === next.z && prev.valid) return;
+      if (prev && prev.x === next.x && prev.z === next.z && prev.valid === valid) return;
       set({ ghost: next });
       return;
     }
@@ -232,7 +261,7 @@ export const useCity = create<CityState>((set, get) => ({
 
   placeAtGhost() {
     const { ghost, mode, selectedId, rot, color, plates, bricks } = get();
-    if (!ghost || mode === "erase") return false;
+    if (get().phase !== "play" || get().helpOpen || !ghost || mode === "erase") return false;
     if (mode === "expand") {
       const gx = Math.floor(ghost.x / PLATE_STUDS);
       const gz = Math.floor(ghost.z / PLATE_STUDS);
@@ -240,6 +269,7 @@ export const useCity = create<CityState>((set, get) => ({
       return get().addPlateAt(gx, gz);
     }
     if (!ghost.valid) {
+      set({ notice: "Pose la pièce sur une plaque, sur une surface plane et assez grande." });
       playDenied();
       return false;
     }
@@ -259,14 +289,14 @@ export const useCity = create<CityState>((set, get) => ({
     const nextBricks = [...bricks, ...placed];
     const past = [...get().past, cloneSnap(plates, bricks)].slice(-40);
     for (const b of placed) occupancy.addBrick(b);
-    set({ bricks: nextBricks, past, future: [] });
+    set({ bricks: nextBricks, past, future: [], notice: "" });
     playPlace();
     get().persist();
     return true;
   },
 
   eraseAtGhost() {
-    const { ghost, bricks, plates } = get();
+    const { ghost } = get();
     if (!ghost) return false;
     const cells = footprintCells(ghost.x, ghost.z, 1, 1, 0);
     const cell = cells[0];
@@ -276,12 +306,23 @@ export const useCity = create<CityState>((set, get) => ({
       playDenied();
       return false;
     }
+    return get().eraseGroup(groupId);
+  },
+
+  eraseGroup(groupId) {
+    const { bricks, plates, phase, helpOpen } = get();
+    if (phase !== "play" || helpOpen || !bricks.some(b => b.groupId === groupId)) return false;
+    // Keep upper constructions supported: remove them first instead of leaving them floating.
+    const supportsOther = bricks.some(b => b.groupId !== groupId && b.y > 0 &&
+      footprintCells(b.x, b.z, b.w, b.d, b.rot).some(c => occupancy.columnOwner(c.x, c.z, b.y - 1) === groupId));
+    if (supportsOther) { set({ notice: "Retire d’abord les éléments posés au-dessus." }); playDenied(); return false; }
     const past = [...get().past, cloneSnap(plates, bricks)].slice(-40);
     occupancy.removeGroup(groupId);
     set({
       bricks: bricks.filter((b) => b.groupId !== groupId),
       past,
       future: [],
+      notice: "",
     });
     playErase();
     get().persist();
@@ -291,10 +332,11 @@ export const useCity = create<CityState>((set, get) => ({
   addPlateAt(gx, gz) {
     const { plates, bricks, selectedId } = get();
     if (plates.length >= MAX_PLATES) {
+      set({ notice: "Ta ville a atteint ses 25 plaques. Tu peux continuer à construire dessus !" });
       playDenied();
       return false;
     }
-    if (occupancy.hasPlate(gx, gz)) return false;
+    if (!Number.isInteger(gx) || !Number.isInteger(gz) || occupancy.hasPlate(gx, gz)) return false;
     const neighbors = [
       [gx - 1, gz],
       [gx + 1, gz],
@@ -303,6 +345,7 @@ export const useCity = create<CityState>((set, get) => ({
     ];
     const attached = plates.length === 0 || neighbors.some(([x, z]) => occupancy.hasPlate(x!, z!));
     if (!attached) {
+      set({ notice: "Choisis une croix juste à côté de ta ville." });
       playDenied();
       return false;
     }
@@ -312,7 +355,7 @@ export const useCity = create<CityState>((set, get) => ({
     const next = [...plates, plate];
     const past = [...get().past, cloneSnap(plates, bricks)].slice(-40);
     occupancy.setPlates(next);
-    set({ plates: next, past, future: [] });
+    set({ plates: next, past, future: [], notice: "" });
     playExpand();
     get().persist();
     return true;
@@ -322,6 +365,8 @@ export const useCity = create<CityState>((set, get) => ({
     const { plates, bricks, selectedId } = get();
     const item = getCatalogItem(selectedId);
     if (!item?.plateType) return false;
+    const existing = plates.find(p => p.gx === gx && p.gz === gz);
+    if (!existing || existing.type === item.plateType) return false;
     const covered = bricks.some((b) => {
       const s = orientedSize(b.w, b.d, b.rot);
       for (let x = b.x; x < b.x + s.w; x++) {
@@ -332,12 +377,13 @@ export const useCity = create<CityState>((set, get) => ({
       return false;
     });
     if (covered) {
+      set({ notice: "Retire les constructions de cette plaque avant de changer son sol." });
       playDenied();
       return false;
     }
     const past = [...get().past, cloneSnap(plates, bricks)].slice(-40);
     const next = plates.map((p) => (p.gx === gx && p.gz === gz ? { ...p, type: item.plateType! } : p));
-    set({ plates: next, past, future: [] });
+    set({ plates: next, past, future: [], notice: "" });
     playExpand();
     get().persist();
     return true;
@@ -353,6 +399,8 @@ export const useCity = create<CityState>((set, get) => ({
       bricks: prev.bricks,
       past: past.slice(0, -1),
       future: [...future, cloneSnap(plates, bricks)].slice(-40),
+      ghost: null,
+      notice: "",
     });
     get().persist();
   },
@@ -367,6 +415,8 @@ export const useCity = create<CityState>((set, get) => ({
       bricks: next.bricks,
       future: future.slice(0, -1),
       past: [...past, cloneSnap(plates, bricks)].slice(-40),
+      ghost: null,
+      notice: "",
     });
     get().persist();
   },
@@ -381,6 +431,10 @@ export const useCity = create<CityState>((set, get) => ({
       future: [],
       mode: "expand",
       selectedId: "plate-grass",
+      rot: 0,
+      ghost: null,
+      helpOpen: false,
+      notice: "",
     });
     get().persist();
   },
@@ -398,11 +452,9 @@ export const useCity = create<CityState>((set, get) => ({
       mode: s.mode,
     };
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      writeSave(data);
-      set({ savedHint: true });
-      setTimeout(() => set({ savedHint: false }), 900);
-    }, 400);
+    const saved = writeSave(data);
+    set({ savedHint: saved, saveError: !saved, hasExistingSave: saved || s.hasExistingSave });
+    if (saved) saveTimer = setTimeout(() => set({ savedHint: false }), 900);
   },
 
   setHelp(v) {

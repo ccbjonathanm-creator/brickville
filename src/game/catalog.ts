@@ -117,9 +117,9 @@ function shop(wall: ColorId): VoxelBrick[] {
   out.push(b("window", 2, 1, 6, "azure", 6, 0, 4));
   out.push(b("window", 1, 1, 6, "azure", 8, 0, 4));
   fillRect(out, "tile", W, D, 1, "darkGrey", 0, 0, 10);
-  fillRect(out, "brick", W, 1, 3, "yellow", 0, 0, 10);
-  for (let x = 0; x < W; x += 2) out.push(b("slope", 2, 1, 3, "red", x, 0, 13, 2));
-  out.push(b("tile", 4, 1, 1, "white", 3, 0, 13));
+  fillRect(out, "brick", W, 1, 3, "yellow", 0, 0, 11);
+  for (let x = 0; x < W; x += 2) out.push(b("slope", 2, 1, 3, "red", x, 0, 14, 2));
+  out.push(b("tile", 4, 1, 1, "white", 3, 0, 17));
   return out;
 }
 
@@ -136,7 +136,7 @@ function police(): VoxelBrick[] {
   out.push(b("window", 2, 1, 6, "azure", 1, 0, 4));
   out.push(b("window", 2, 1, 6, "azure", 7, 0, 4));
   fillRect(out, "plate", W, D, 1, "white", 0, 0, 13);
-  fillRect(out, "brick", W, 1, 3, "white", 0, 0, 13);
+  fillRect(out, "brick", W, 1, 3, "white", 0, 0, 14);
   out.push(b("brick", 2, 2, 3, "blue", 4, 4, 14));
   out.push(b("round", 2, 2, 1, "white", 4, 4, 17));
   return out;
@@ -151,8 +151,8 @@ function firehouse(): VoxelBrick[] {
   perimeter(out, W, D, 0, 0, 1, 3, "red", [garage]);
   for (let x = 2; x < 10; x += 2) out.push(b("door", 2, 1, 9, "darkGrey", x, 0, 1));
   fillRect(out, "plate", W, D, 1, "darkGrey", 0, 0, 10);
-  fillRect(out, "brick", W, 2, 3, "red", 0, 0, 10);
-  out.push(b("brick", 2, 2, 6, "darkGrey", 5, 7, 10));
+  fillRect(out, "brick", W, 2, 3, "red", 0, 0, 11);
+  out.push(b("brick", 2, 2, 6, "darkGrey", 5, 7, 11));
   return out;
 }
 

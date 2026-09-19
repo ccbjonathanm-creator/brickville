@@ -67,3 +67,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@media (max-height: 500px) and (min-width: 600px) {
+  .title-screen { flex-direction: row; align-items: flex-end; gap: 16px; }
+  .title-screen header { max-width: 50%; padding: 16px; }
+  .title-screen h1 { font-size: 2.5rem; }
+  .title-screen header > p:first-child { display: none; }
+  .title-screen header > p { font-size: 0.875rem; margin-top: 8px; }
+  .title-actions { max-width: 45%; }
+}

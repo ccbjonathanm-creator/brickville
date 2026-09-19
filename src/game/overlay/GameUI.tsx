@@ -8,7 +8,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CATALOG, CATEGORIES, getCatalogItem } from "../catalog";
 import { COLORS, type ColorId } from "../constants";
 import { useCity } from "../store";
@@ -26,8 +26,8 @@ function TitleScreen() {
   const hasExistingSave = useCity((s) => s.hasExistingSave);
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-8">
-      <header className="max-w-xl">
+    <div className="title-screen pointer-events-none absolute inset-0 z-20 flex flex-col justify-between p-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-8">
+      <header className="max-w-xl rounded-xl bg-bg-elevated/95 p-5 shadow-panel">
         <p className="font-display text-xs font-semibold tracking-[0.22em] text-accent uppercase">
           Tablette · Construction
         </p>
@@ -39,10 +39,10 @@ function TitleScreen() {
         </p>
       </header>
 
-      <div className="pointer-events-auto flex w-full max-w-md flex-col gap-3">
+      <div className="title-actions pointer-events-auto flex w-full max-w-md flex-col gap-3">
         <button
           type="button"
-          onClick={startNew}
+          onClick={() => { if (!hasExistingSave || window.confirm("Effacer ta ville enregistrée et en créer une nouvelle ?")) startNew(); }}
           className="h-14 rounded-lg bg-accent px-6 text-base font-semibold text-accent-fg shadow-panel transition-transform duration-200 hover:bg-accent-hover active:scale-[0.98]"
         >
           Nouvelle ville
@@ -56,7 +56,7 @@ function TitleScreen() {
             Continuer ma ville
           </button>
         ) : null}
-        <p className="text-sm text-fg-subtle">
+        <p className="rounded-md bg-bg-elevated/95 px-3 py-2 text-sm text-fg-muted">
           Un doigt pour regarder · toucher pour clipser · pincer pour zoomer
         </p>
       </div>
@@ -84,6 +84,14 @@ function PlayHUD() {
   const bricks = useCity((s) => s.bricks);
   const plates = useCity((s) => s.plates);
   const savedHint = useCity((s) => s.savedHint);
+  const saveError = useCity((s) => s.saveError);
+  const notice = useCity((s) => s.notice);
+  const canUndo = useCity((s) => s.past.length > 0);
+  const canRedo = useCity((s) => s.future.length > 0);
+  useEffect(() => {
+    const item = getCatalogItem(selectedId);
+    if (item) setCategory(item.category);
+  }, [selectedId]);
   const groups = useMemo(() => new Set(bricks.map((b) => b.groupId)).size, [bricks]);
   const items = useMemo(() => CATALOG.filter((c) => c.category === category), [category]);
   const selected = getCatalogItem(selectedId);
@@ -100,10 +108,10 @@ function PlayHUD() {
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <IconBtn label="Annuler" onClick={undo}>
+          <IconBtn label="Annuler" onClick={undo} disabled={!canUndo}>
             <Undo2 className="size-5" />
           </IconBtn>
-          <IconBtn label="Rétablir" onClick={redo}>
+          <IconBtn label="Rétablir" onClick={redo} disabled={!canRedo}>
             <Redo2 className="size-5" />
           </IconBtn>
           <IconBtn label="Aide" onClick={() => setHelp(true)}>
@@ -143,6 +151,8 @@ function PlayHUD() {
 
       <div className="flex-1" />
 
+      {saveError || notice ? <p role="status" className="mx-3 mb-2 self-start rounded-md bg-bg-elevated px-3 py-2 text-sm text-fg shadow-panel">{saveError ? "La sauvegarde est bloquée sur cet appareil. Garde le jeu ouvert pour ne pas perdre ta ville." : notice}</p> : null}
+
       <div className="pointer-events-auto px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
         {selected && selected.kind !== "baseplate" ? (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
@@ -150,9 +160,10 @@ function PlayHUD() {
               <button
                 key={c}
                 type="button"
-                aria-label={c}
+                aria-label={COLOR_NAMES[c]}
+                aria-pressed={color === c}
                 onClick={() => setColor(c)}
-                className={`size-9 shrink-0 rounded-full border-2 ${
+                className={`size-11 shrink-0 rounded-full border-2 ${
                   color === c ? "border-fg scale-110" : "border-bg-elevated"
                 }`}
                 style={{ background: COLORS[c] }}
@@ -162,13 +173,14 @@ function PlayHUD() {
         ) : null}
 
         <div className="rounded-xl border border-border bg-bg-elevated/95 p-3 shadow-panel backdrop-blur-md">
-          <div className="flex gap-1.5 overflow-x-auto pb-2">
+          <div className="flex touch-pan-x gap-1.5 overflow-x-auto pb-2">
             {CATEGORIES.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setCategory(c.id)}
-                className={`h-9 shrink-0 rounded-sm px-3 text-sm font-medium ${
+                aria-pressed={category === c.id}
+                className={`h-11 shrink-0 rounded-sm px-3 text-sm font-medium ${
                   category === c.id ? "bg-fg text-bg" : "bg-bg-sunken text-fg-muted hover:text-fg"
                 }`}
               >
@@ -176,7 +188,7 @@ function PlayHUD() {
               </button>
             ))}
           </div>
-          <div className="flex gap-2 overflow-x-auto pt-1 pb-1">
+          <div className="flex touch-pan-x gap-2 overflow-x-auto pt-1 pb-1">
             {items.map((it) => (
               <CatalogCard
                 key={it.id}
@@ -199,18 +211,21 @@ function IconBtn({
   children,
   onClick,
   label,
+  disabled = false,
 }: {
   children: ReactNode;
   onClick: () => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
+      disabled={disabled}
       onClick={onClick}
-      className="grid size-11 place-items-center rounded-md border border-border bg-bg-elevated/92 text-fg shadow-panel backdrop-blur-sm active:scale-95"
+      className="grid size-11 place-items-center rounded-md border border-border bg-bg-elevated/92 text-fg shadow-panel backdrop-blur-sm active:scale-95 disabled:opacity-40"
     >
       {children}
     </button>
@@ -232,6 +247,7 @@ function ToolBtn({
     <button
       type="button"
       aria-label={label}
+      aria-pressed={active}
       onClick={onClick}
       className={`flex h-11 min-w-11 items-center justify-center gap-2 rounded-sm px-3 text-sm font-medium ${
         active ? "bg-accent text-accent-fg" : "text-fg hover:bg-bg-sunken"
@@ -261,6 +277,7 @@ function CatalogCard({
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={active}
       className={`flex h-24 w-24 shrink-0 flex-col items-center justify-between rounded-md border px-1.5 py-1.5 text-center ${
         active ? "border-accent bg-bg-sunken" : "border-border bg-bg hover:bg-bg-sunken"
       }`}
@@ -316,8 +333,8 @@ function Thumb({ item, fill }: { item: CatalogItem; fill: string }) {
 function HelpModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="pointer-events-auto absolute inset-0 z-30 grid place-items-center bg-fg/35 p-4">
-      <div className="max-h-[min(36rem,88dvh)] w-full max-w-lg overflow-auto rounded-xl border border-border bg-bg-elevated p-5 shadow-panel sm:p-6">
-        <h2 className="font-display text-2xl font-semibold tracking-tight">Comment jouer</h2>
+      <div role="dialog" aria-modal="true" aria-labelledby="help-title" className="max-h-[min(36rem,88dvh)] w-full max-w-lg touch-pan-y overflow-auto rounded-xl border border-border bg-bg-elevated p-5 shadow-panel sm:p-6">
+        <h2 id="help-title" className="font-display text-2xl font-semibold tracking-tight">Comment jouer</h2>
         <ol className="mt-4 space-y-3 text-sm leading-relaxed text-fg-muted">
           <li>
             <span className="font-semibold text-fg">1. Plaques — </span>
@@ -332,6 +349,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <li>
             <span className="font-semibold text-fg">3. Empiler — </span>
             Repose une pièce sur une autre pour monter. Tourne avec le bouton ou la touche R.
+            Toute la base doit être soutenue à la même hauteur. Un bâtiment se retire en entier ; retire d’abord ce qui est posé dessus.
           </li>
           <li>
             <span className="font-semibold text-fg">4. Regarder — </span>
@@ -349,3 +367,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+const COLOR_NAMES: Record<ColorId, string> = {
+  white: "Blanc", black: "Noir", lightGrey: "Gris clair", darkGrey: "Gris foncé", red: "Rouge", yellow: "Jaune", blue: "Bleu", green: "Vert", orange: "Orange", brown: "Marron", tan: "Beige", darkRed: "Rouge foncé", azure: "Turquoise", lime: "Vert citron", nougat: "Caramel", darkBlue: "Bleu foncé", transYellow: "Jaune clair", sandGreen: "Vert sauge",
+};

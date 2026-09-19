@@ -12,6 +12,8 @@ Les constructions sont enregistrées dans ce navigateur, sur cet appareil. Elles
 
 Node.js 22. Installer avec `npm ci`, lancer avec `npm run dev`, vérifier et compiler avec `npm run build`.
 
+Tests du jeu : `npm test`. Vérifications et limites détaillées dans [VERIFICATION.md](VERIFICATION.md).
+
 ## Publication
 
 Le dépôt publie le dossier `docs` de la branche `main` avec GitHub Pages. Après une modification, lancer `npm run build`, remplacer le contenu de `docs` par celui de `dist` en conservant `docs/.nojekyll`, puis envoyer le commit sur GitHub. Les chemins relatifs permettent un hébergement sous `/brickville/`.

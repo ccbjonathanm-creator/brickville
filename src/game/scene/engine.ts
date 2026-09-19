@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { getCatalogItem } from "../catalog";
-import { PLATE_H, PLATE_STUDS } from "../constants";
+import { MAX_PLATES, PLATE_H, PLATE_STUDS } from "../constants";
+import { TapGesture } from "../gestures";
 import {
   brickWorldMatrix,
   getBrickGeometry,
@@ -165,6 +166,7 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
 
   function rebuildBricks(bricks: PlacedBrick[]) {
     while (bricksGroup.children.length) {
+      (bricksGroup.children[0] as THREE.InstancedMesh).dispose();
       bricksGroup.remove(bricksGroup.children[0]!);
     }
     const buckets = new Map<string, PlacedBrick[]>();
@@ -185,6 +187,7 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
       });
       inst.instanceMatrix.needsUpdate = true;
       inst.userData.key = key;
+      inst.userData.groupIds = items.map(b => b.groupId);
       bricksGroup.add(inst);
     }
   }
@@ -219,7 +222,7 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
     const voxels = ghostVoxels();
     const mat = s.ghost?.valid ? ghostMatOk : ghostMatBad;
     const yLift = getCatalogItem(s.selectedId)?.prefab ? (s.ghost?.y ?? 0) : 0;
-    for (const b of voxels.slice(0, 90)) {
+    for (const b of voxels) {
       const geo = getBrickGeometry(b.kind, b.w, b.d, b.h);
       const mesh = new THREE.Mesh(geo, mat);
       const size = orientedSize(b.w, b.d, b.rot);
@@ -230,19 +233,22 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
         x += size.w;
         z += size.d;
       } else if (b.rot === 3) z += size.d;
-      mesh.position.set(x, (b.y + yLift) * PLATE_H, z);
+      mesh.position.set(x, PLATE_H + (b.y + yLift) * PLATE_H, z);
       mesh.rotation.y = -b.rot * (Math.PI / 2);
       ghostGroup.add(mesh);
     }
   }
 
   function rebuildExpand() {
+    const oldGeometry = new Set<THREE.BufferGeometry>();
+    expandGroup.traverse(obj => { if (obj instanceof THREE.Mesh) oldGeometry.add(obj.geometry); });
+    oldGeometry.forEach(geo => geo.dispose());
     while (expandGroup.children.length) {
       const ch = expandGroup.children[0]!;
       expandGroup.remove(ch);
     }
     const s = useCity.getState();
-    if (s.phase !== "play" || s.mode !== "expand") return;
+    if (s.phase !== "play" || s.mode !== "expand" || s.plates.length >= MAX_PLATES) return;
     const geo = new THREE.BoxGeometry(PLATE_STUDS - 1.2, 0.12, PLATE_STUDS - 1.2);
     const bar = new THREE.BoxGeometry(8, 0.35, 1.4);
     const bar2 = new THREE.BoxGeometry(1.4, 0.35, 8);
@@ -285,48 +291,66 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
       state.phase !== prev.phase
     ) {
       rebuildGhost();
-      rebuildExpand();
+    }
+    if (state.plates !== prev.plates || state.mode !== prev.mode || state.phase !== prev.phase) rebuildExpand();
+    if (state.bricks !== prev.bricks && state.ghost && state.mode === "place") {
+      const item = getCatalogItem(state.selectedId);
+      if (item) {
+        const size = orientedSize(item.w, item.d, state.rot);
+        state.setGhostWorld(state.ghost.x + size.w / 2, state.ghost.z + size.d / 2);
+      }
     }
     controls.autoRotate = state.phase === "title";
   });
 
   const raycaster = new THREE.Raycaster();
-  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -PLATE_H);
   const hit = new THREE.Vector3();
   const ndc = new THREE.Vector2();
-  let pointerDown: { x: number; y: number } | null = null;
+  const gesture = new TapGesture();
 
   function pointerToWorld(e: PointerEvent) {
     const rect = canvas.getBoundingClientRect();
     ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
+    const s = useCity.getState();
+    const picked = s.mode !== "expand" ? raycaster.intersectObjects(bricksGroup.children, false)[0] : undefined;
+    if (picked) {
+      // Use the visible object rather than its displaced projection on the ground.
+      s.setGhostWorld(picked.point.x, picked.point.z);
+      return picked.instanceId === undefined ? undefined : picked.object.userData.groupIds[picked.instanceId] as string;
+    }
     if (raycaster.ray.intersectPlane(plane, hit)) {
       useCity.getState().setGhostWorld(hit.x, hit.z);
+    } else {
+      useCity.setState({ ghost: null });
     }
   }
 
   const onPointerMove = (e: PointerEvent) => {
+    gesture.move(e);
     if (useCity.getState().phase !== "play") return;
     pointerToWorld(e);
   };
   const onPointerDown = (e: PointerEvent) => {
-    pointerDown = { x: e.clientX, y: e.clientY };
+    gesture.down(e);
   };
   const onPointerUp = (e: PointerEvent) => {
-    const start = pointerDown;
-    pointerDown = null;
+    const tapped = gesture.up(e);
     const s = useCity.getState();
-    if (s.phase !== "play" || !start) return;
-    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 16) return;
-    pointerToWorld(e);
-    if (s.mode === "erase") s.eraseAtGhost();
+    if (s.phase !== "play" || s.helpOpen || !tapped) return;
+    const picked = pointerToWorld(e);
+    if (s.mode === "erase") { if (picked) s.eraseGroup(picked); else s.eraseAtGhost(); }
     else s.placeAtGhost();
   };
 
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointerup", onPointerUp);
+  const onCancel = (e: PointerEvent) => gesture.cancel(e.pointerId);
+  canvas.addEventListener("pointercancel", onCancel);
+  canvas.addEventListener("lostpointercapture", onCancel);
 
   const resize = () => {
     const parent = canvas.parentElement ?? canvas;
@@ -355,7 +379,20 @@ export function mountCity(canvas: HTMLCanvasElement): () => void {
     canvas.removeEventListener("pointermove", onPointerMove);
     canvas.removeEventListener("pointerdown", onPointerDown);
     canvas.removeEventListener("pointerup", onPointerUp);
+    canvas.removeEventListener("pointercancel", onCancel);
+    canvas.removeEventListener("lostpointercapture", onCancel);
     controls.dispose();
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    scene.traverse(obj => {
+      if (obj instanceof THREE.Mesh) {
+        geometries.add(obj.geometry);
+        for (const mat of Array.isArray(obj.material) ? obj.material : [obj.material]) materials.add(mat);
+        if (obj instanceof THREE.InstancedMesh) obj.dispose();
+      }
+    });
+    geometries.forEach(geo => geo.dispose());
+    materials.forEach(mat => mat.dispose());
     renderer.dispose();
     ghostMatOk.dispose();
     ghostMatBad.dispose();

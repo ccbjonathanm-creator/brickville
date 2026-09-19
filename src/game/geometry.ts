@@ -105,11 +105,11 @@ export function getBrickGeometry(
       break;
     }
     case "car": {
-      geo = makeCar(w, d, false);
+      geo = makeCar(d, w, false);
       break;
     }
     case "truck": {
-      geo = makeCar(Math.max(w, 6), 2, true);
+      geo = makeCar(d, w, true);
       break;
     }
     case "bus": {
@@ -357,7 +357,7 @@ export function specialHeight(kind: BrickKind, hPlates: number): number {
   if (kind === "minifig") return 7;
   if (kind === "tree") return 12;
   if (kind === "lamp") return 12;
-  if (kind === "car" || kind === "truck" || kind === "bus") return 5;
+  if (kind === "car" || kind === "truck") return 5;
   if (kind === "bench") return 3;
   if (kind === "fence") return 3;
   return hPlates;
@@ -373,7 +373,7 @@ export function brickWorldMatrix(
 ): THREE.Matrix4 {
   const s = orientedSize(w, d, rot);
   const m = new THREE.Matrix4();
-  const pos = new THREE.Vector3(x, yPlates * PLATE_H, z);
+  const pos = new THREE.Vector3(x, PLATE_H + yPlates * PLATE_H, z);
   const quat = new THREE.Quaternion();
   const scale = new THREE.Vector3(1, 1, 1);
   quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -rot * (Math.PI / 2));
